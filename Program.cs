@@ -48,17 +48,16 @@ namespace SwaggerUnityGenerator
             File.WriteAllText(outPath, dtoCode);
 
 
-            // 1. path 별로 Implementation 생성
             foreach (var kv in document.Paths)
             {
-                var path = kv.Key;      // ex) "/WeatherForecast"
-                var item = kv.Value;    // 해당 OpenApiPathItem
+                var path = kv.Key;
+                var item = kv.Value;
                 var className = config.ClassName.Replace("{tag}", PathToClassName(path));
 
                 // 1-1. 이 path 만 남기는 새 문서 복제
                 var oneDoc = new OpenApiDocument
                 {
-                    Info = document.Info,           // 메타정보 복제
+                    Info = document.Info,
                 };
 
                 foreach (var com in document.Components.Schemas)
@@ -68,10 +67,9 @@ namespace SwaggerUnityGenerator
 
 
 
-                oneDoc.Paths.Clear();                    // 기존 Paths 전부 지우고
-                oneDoc.Paths.Add(path, item);            // 이 경로만 추가
+                oneDoc.Paths.Clear();
+                oneDoc.Paths.Add(path, item);
 
-                // 1-2. Implementation 단일 클래스 생성
                 var implSettings = new CSharpClientGeneratorSettings
                 {
                     ClassName = className,
@@ -82,17 +80,13 @@ namespace SwaggerUnityGenerator
 
                 Console.WriteLine(implCode);
 
-                // 1-3. 파일로 쓰기
                 outPath = Path.Combine(outputRoot, $"{className}.cs");
                 File.WriteAllText(outPath, implCode);
                 Console.WriteLine($"[Impl] {path} → {className}.cs");
             }
 
-            // 헬퍼: "/foo-bar/{id}" → "FooBarById" 같은 식으로 변환
             static string PathToClassName(string path)
             {
-                // 1) 맨 앞 슬래시 제거
-                // 2) 중괄호, 특수문자 제거 / CamelCase
                 var parts = path.Trim('/')
                                 .Split(new[] { '/', '-', '_' }, StringSplitOptions.RemoveEmptyEntries)
                                 .Select(p => char.ToUpperInvariant(p[0]) + p.Substring(1));
