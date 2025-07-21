@@ -10,8 +10,7 @@ namespace SwaggerUnityGenerator
     {
         public string SwaggerUrl { get; set; } = "http://TargetURL";
         public string OutputRoot { get; set; } = "./Client";
-        public string OutputModel { get; set; } = "{OutputRoot}/Model";
-        public string Namespace { get; set; } = "ApiService.Model";
+        public string DTONamespace { get; set; } = "ApiService";
         public string ClassNamespace { get; set; } = "ApiService.{tag}";
         public string ClassName { get; set; } = "{tag}ApiClient";
     }

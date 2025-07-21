@@ -3,6 +3,8 @@ using NSwag.CodeGeneration.CSharp;
 using NJsonSchema.CodeGeneration.CSharp;
 using NJsonSchema;
 using System.Text.Json;
+using NSwag.CodeGeneration.OperationNameGenerators;
+using System.Diagnostics.CodeAnalysis;
 
 namespace SwaggerUnityGenerator
 {
@@ -15,14 +17,12 @@ namespace SwaggerUnityGenerator
 
             string swaggerUrl = config.SwaggerUrl;
             string outputRoot = config.OutputRoot;
-            string outputModel = config.OutputModel.Replace("{OutputRoot}", outputRoot);
 
             OpenApiDocument document;
 
 
             try
             {
-
                 document = await OpenApiDocument.FromUrlAsync(swaggerUrl);
             }
             catch (HttpRequestException e)
@@ -31,61 +31,72 @@ namespace SwaggerUnityGenerator
                 return;
             }
 
-            var tags = document.Operations
-                .Select(op => op.Operation.Tags.FirstOrDefault() ?? "Default")
-                .Distinct();
 
             if (Directory.Exists(outputRoot))
             {
                 Directory.Delete(outputRoot, true);
             }
             Directory.CreateDirectory(outputRoot);
-            Directory.CreateDirectory(outputModel);
 
 
-            { ///DTO 생성
-                var dtoSettings = new CSharpGeneratorSettings
+            var generator = new CSharpClientGenerator(document, new CSharpClientGeneratorSettings
+            {
+                CSharpGeneratorSettings = { Namespace = config.DTONamespace }
+            });
+            var dtoCode = generator.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Contracts);
+            var outPath = Path.Combine(outputRoot, $"Model.cs");
+            File.WriteAllText(outPath, dtoCode);
+
+
+            // 1. path 별로 Implementation 생성
+            foreach (var kv in document.Paths)
+            {
+                var path = kv.Key;      // ex) "/WeatherForecast"
+                var item = kv.Value;    // 해당 OpenApiPathItem
+                var className = config.ClassName.Replace("{tag}", PathToClassName(path));
+
+                // 1-1. 이 path 만 남기는 새 문서 복제
+                var oneDoc = new OpenApiDocument
                 {
-                    Namespace = config.Namespace,
-                    //TypeNameGenerator = new TypeNameGenerator()
+                    Info = document.Info,           // 메타정보 복제
                 };
 
-                foreach (var dto in document.Components.Schemas)
+                foreach (var com in document.Components.Schemas)
                 {
-                    var schemaName = dto.Key;
-                    var schema = dto.Value;
-                    dto.Value.Title = dto.Key;
-                    var dtoGenerator = new CSharpGenerator(schema, dtoSettings);
-                    var dtoCode = dtoGenerator.GenerateFile();
-
-                    var outputPath = Path.Combine(outputModel, $"{schemaName}.cs");
-                    await File.WriteAllTextAsync(outputPath, dtoCode);
-
+                    oneDoc.Components.Schemas.Add(com.Key, com.Value);
                 }
+
+
+
+                oneDoc.Paths.Clear();                    // 기존 Paths 전부 지우고
+                oneDoc.Paths.Add(path, item);            // 이 경로만 추가
+
+                // 1-2. Implementation 단일 클래스 생성
+                var implSettings = new CSharpClientGeneratorSettings
+                {
+                    ClassName = className,
+                    CSharpGeneratorSettings = { Namespace = config.DTONamespace }
+                };
+                var implGen = new CSharpClientGenerator(oneDoc, implSettings);
+                var implCode = implGen.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Implementation);
+
+                Console.WriteLine(implCode);
+
+                // 1-3. 파일로 쓰기
+                outPath = Path.Combine(outputRoot, $"{className}.cs");
+                File.WriteAllText(outPath, implCode);
+                Console.WriteLine($"[Impl] {path} → {className}.cs");
             }
 
-
-            foreach (var tag in tags)
+            // 헬퍼: "/foo-bar/{id}" → "FooBarById" 같은 식으로 변환
+            static string PathToClassName(string path)
             {
-                var settings = new CSharpClientGeneratorSettings
-                {
-                    ClassName = config.ClassName.Replace("{tag}",tag),
-                    InjectHttpClient = true,
-                    GenerateDtoTypes = false,
-                    CSharpGeneratorSettings =
-                    {
-                        GenerateDataAnnotations = false,
-                        Namespace = config.ClassNamespace.Replace("{tag}",tag)
-                    }
-                };
-
-                var generator = new CSharpClientGenerator(document, settings);
-                var code = generator.GenerateFile();
-
-                var outFile = Path.Combine(outputRoot, $"{tag}ApiClient.cs");
-                await File.WriteAllTextAsync(outFile, code);
-
-                Console.WriteLine($"[UnityGenerator] {tag} → {outFile}");
+                // 1) 맨 앞 슬래시 제거
+                // 2) 중괄호, 특수문자 제거 / CamelCase
+                var parts = path.Trim('/')
+                                .Split(new[] { '/', '-', '_' }, StringSplitOptions.RemoveEmptyEntries)
+                                .Select(p => char.ToUpperInvariant(p[0]) + p.Substring(1));
+                return string.Concat(parts);
             }
         }
 
