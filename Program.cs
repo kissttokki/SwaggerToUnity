@@ -5,6 +5,8 @@ using NJsonSchema;
 using System.Text.Json;
 using NSwag.CodeGeneration.OperationNameGenerators;
 using System.Diagnostics.CodeAnalysis;
+using Fluid;
+using NSwag.CodeGeneration;
 
 namespace SwaggerUnityGenerator
 {
@@ -41,49 +43,94 @@ namespace SwaggerUnityGenerator
 
             var generator = new CSharpClientGenerator(document, new CSharpClientGeneratorSettings
             {
-                CSharpGeneratorSettings = { Namespace = config.DTONamespace }
+                CSharpGeneratorSettings = 
+                {
+                    TemplateDirectory = "./Templates",
+                    Namespace = config.DTONamespace 
+                }
             });
             var dtoCode = generator.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Contracts);
             var outPath = Path.Combine(outputRoot, $"Model.cs");
             File.WriteAllText(outPath, dtoCode);
 
+            var groupedByTag = document.Paths
+                .SelectMany(path => path.Value.ActualPathItem.Select(op => new {
+                    Path = path.Key,
+                    Operation = op,
+                    Tag = op.Value.Tags.FirstOrDefault() ?? "Default"
+                }))
+                .GroupBy(x => x.Tag);
 
-            foreach (var kv in document.Paths)
+            foreach (var group in groupedByTag)
             {
-                var path = kv.Key;
-                var item = kv.Value;
-                var className = config.ClassName.Replace("{tag}", PathToClassName(path));
+                var controllerName = group.Key; // Controller 이름
+                var className = $"{controllerName}Client"; // 예: UserClient
 
-                // 1-1. 이 path 만 남기는 새 문서 복제
-                var oneDoc = new OpenApiDocument
+                var controllerDoc = new OpenApiDocument
                 {
                     Info = document.Info,
                 };
 
-                foreach (var com in document.Components.Schemas)
+                foreach (var item in group)
                 {
-                    oneDoc.Components.Schemas.Add(com.Key, com.Value);
+                    controllerDoc.Paths[item.Path] = document.Paths[item.Path];
                 }
 
+                foreach (var schema in document.Components.Schemas)
+                    controllerDoc.Components.Schemas.Add(schema.Key, schema.Value);
+
+                foreach (var response in document.Components.Responses)
+                    controllerDoc.Components.Responses.Add(response.Key, response.Value);
+
+                foreach (var parameter in document.Components.Parameters)
+                    controllerDoc.Components.Parameters.Add(parameter.Key, parameter.Value);
+
+                foreach (var requestBody in document.Components.RequestBodies)
+                    controllerDoc.Components.RequestBodies.Add(requestBody.Key, requestBody.Value);
 
 
-                oneDoc.Paths.Clear();
-                oneDoc.Paths.Add(path, item);
 
-                var implSettings = new CSharpClientGeneratorSettings
+                var settings = new CSharpClientGeneratorSettings
                 {
                     ClassName = className,
-                    CSharpGeneratorSettings = { Namespace = config.DTONamespace }
+                    UseBaseUrl = true,
+                    AdditionalNamespaceUsages = new[] { "UnityEngine.Networking", "Cysharp.Threading.Tasks" },
+                    CSharpGeneratorSettings = {
+            TemplateDirectory = "./Templates",
+            Namespace = config.DTONamespace
+        }
                 };
-                var implGen = new CSharpClientGenerator(oneDoc, implSettings);
-                var implCode = implGen.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Implementation);
 
-                Console.WriteLine(implCode);
+                generator = new CSharpClientGenerator(controllerDoc, settings);
+                var code = generator.GenerateFile(ClientGeneratorOutputType.Implementation);
 
-                outPath = Path.Combine(outputRoot, $"{className}.cs");
-                File.WriteAllText(outPath, implCode);
-                Console.WriteLine($"[Impl] {path} → {className}.cs");
+                var fileName = $"{className}.cs";
+                File.WriteAllText(Path.Combine(outputRoot, fileName), code);
+                Console.WriteLine($"[Controller] {className} → {fileName}");
             }
+
+
+
+            var parser = new FluidParser();
+            var templateText = File.ReadAllText("Templates/NetworkConfig.liquid");
+
+            if (parser.TryParse(templateText, out var template, out var errors))
+            {
+                var context = new TemplateContext();
+                context.SetValue("namespace", config.DTONamespace);
+                context.SetValue("baseUrl", "https://localhost");
+                context.SetValue("timeout", 30);
+
+                var output = await template.RenderAsync(context);
+
+
+                File.WriteAllText($"{outputRoot}/NetworkConfig.cs", output);
+            }
+            else
+            {
+                Console.WriteLine("Liquid 파싱 에러 발생: " + string.Join("\n", errors));
+            }
+
 
             static string PathToClassName(string path)
             {

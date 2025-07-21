@@ -1,0 +1,62 @@
+{% template Client.Class.Annotations %}
+using System;
+using UnityEngine;
+using UnityEngine.Networking;
+using System.Text;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+
+{{ ClientClassAccessModifier }} partial class {{ Class }}{% if GenerateClientInterfaces %} : I{{ Class }}{% endif %}
+{
+    {% for operation in Operations %}
+    /// <summary>
+    /// {{ operation.Documentation }}
+    /// </summary>
+    public static async {% if operation.ResultType == "System.Threading.Tasks.Task" %}UniTask{% else %}UniTask<{{ operation.UnwrappedResultType }}>{% endif %} {{ operation.ActualOperationName }}Async({% for parameter in operation.Parameters %}{{ parameter.Type }} {{ parameter.VariableName }}{% if parameter.IsLast == false %}, {% endif %}{% endfor %})
+    {
+        var urlBuilder_ = new System.Text.StringBuilder();
+        urlBuilder_.Append(NetworkConfig.BaseUrl);
+        urlBuilder_.Append("{{ operation.Path }}");
+        {% if operation.HasContent %}
+        var bodyJson = JsonConvert.SerializeObject({{ operation.ContentParameter.VariableName }});
+        byte[] bodyRaw = Encoding.UTF8.GetBytes(bodyJson);
+        {% endif %}
+        {% if operation.PathParameters.size > 0 or operation.QueryParameters.size > 0 or operation.HasContent %}
+        var queryParams = new List<string>();
+        {% for parameter in operation.QueryParameters %}
+        queryParams.Add($"{{ parameter.Name }}={Uri.EscapeDataString(Convert.ToString({{ parameter.VariableName }}))}");
+        {% endfor %}
+        if (queryParams.Count > 0)
+        {
+            urlBuilder_.Append("?");
+            urlBuilder_.Append(string.Join("&", queryParams));
+        }
+        {% endif %}
+        var request = new UnityWebRequest(urlBuilder_.ToString(), "{{ operation.HttpMethodUpper }}");
+        {% if operation.HasContent %}
+        request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+        {% endif %}
+        request.downloadHandler = new DownloadHandlerBuffer();
+        request.SetRequestHeader("Content-Type", "application/json");
+        {% for header in operation.HeaderParameters %}
+        request.SetRequestHeader("{{ header.Name }}", {{ header.VariableName }});
+        {% endfor %}
+        await request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.Success)
+        {
+            var responseText = request.downloadHandler.text;
+            {% if operation.HasResultType %}
+            var result = JsonConvert.DeserializeObject<{{ operation.UnwrappedResultType }}>(responseText);
+            return result;
+            {% else %}
+            return;
+            {% endif %}
+        }
+        else
+        {
+            throw new System.Exception($"Request failed: {request.error}");
+        }
+    }
+    {% endfor %}
+}
