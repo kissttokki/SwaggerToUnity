@@ -21,7 +21,7 @@ using System.Collections.Generic;
         var bodyJson = JsonConvert.SerializeObject({{ operation.ContentParameter.VariableName }});
         byte[] bodyRaw = Encoding.UTF8.GetBytes(bodyJson);
         {% endif %}
-        {% if operation.PathParameters.size > 0 or operation.QueryParameters.size > 0 or operation.HasContent %}
+        {% if operation.QueryParameters.size > 0 %}
         var queryParams = new List<string>();
         {% for parameter in operation.QueryParameters %}
         queryParams.Add($"{{ parameter.Name }}={Uri.EscapeDataString(Convert.ToString({{ parameter.VariableName }}))}");
@@ -32,7 +32,8 @@ using System.Collections.Generic;
             urlBuilder_.Append(string.Join("&", queryParams));
         }
         {% endif %}
-        var request = new UnityWebRequest(urlBuilder_.ToString(), "{{ operation.HttpMethodUpper }}");
+        var url = urlBuilder_.ToString();
+        var request = new UnityWebRequest(url, "{{ operation.HttpMethodUpper }}");
         {% if operation.HasContent %}
         request.uploadHandler = new UploadHandlerRaw(bodyRaw);
         {% endif %}
@@ -41,11 +42,21 @@ using System.Collections.Generic;
         {% for header in operation.HeaderParameters %}
         request.SetRequestHeader("{{ header.Name }}", {{ header.VariableName }});
         {% endfor %}
+        
+        #if NET_LOG
+        Debug.Log($"[{{ Class }}/REQ] {url}");
+        #endif
+
         await request.SendWebRequest();
 
         if (request.result == UnityWebRequest.Result.Success)
         {
             var responseText = request.downloadHandler.text;
+
+            #if NET_LOG
+            Debug.Log($"[{{ Class }}/RES] {responseText}");
+            #endif
+
             {% if operation.HasResultType %}
             var result = JsonConvert.DeserializeObject<{{ operation.UnwrappedResultType }}>(responseText);
             return result;
@@ -55,7 +66,10 @@ using System.Collections.Generic;
         }
         else
         {
-            throw new System.Exception($"Request failed: {request.error}");
+            #if NET_LOG
+            Debug.LogError($"[{{ Class }}] Request failed: {request.error}");
+            #endif
+            throw new System.Exception($"[{{ Class }}] Request failed: {request.error}");
         }
     }
     {% endfor %}
