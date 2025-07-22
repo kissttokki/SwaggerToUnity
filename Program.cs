@@ -7,6 +7,7 @@ using NSwag.CodeGeneration.OperationNameGenerators;
 using System.Diagnostics.CodeAnalysis;
 using Fluid;
 using NSwag.CodeGeneration;
+using System.Reflection.Metadata;
 
 namespace SwaggerUnityGenerator
 {
@@ -17,22 +18,7 @@ namespace SwaggerUnityGenerator
         {
             var config = LoadConfig();
 
-            string swaggerUrl = config.SwaggerUrl;
             string outputRoot = config.OutputRoot;
-
-            OpenApiDocument document;
-
-
-            try
-            {
-                document = await OpenApiDocument.FromUrlAsync(swaggerUrl);
-            }
-            catch (HttpRequestException e)
-            {
-                Console.WriteLine($"Wrong Swagger Address : {swaggerUrl}");
-                return;
-            }
-
 
             if (Directory.Exists(outputRoot))
             {
@@ -40,21 +26,53 @@ namespace SwaggerUnityGenerator
             }
             Directory.CreateDirectory(outputRoot);
 
+            OpenApiDocument totalDocument = new OpenApiDocument();
 
-            var generator = new CSharpClientGenerator(document, new CSharpClientGeneratorSettings
+
+
+
+            foreach (var swaggerUrl in config.SwaggerUrl)
             {
-                CSharpGeneratorSettings = 
-                {
-                    TemplateDirectory = "./Templates",
-                    Namespace = config.DTONamespace 
-                }
-            });
-            var dtoCode = generator.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Contracts);
-            var outPath = Path.Combine(outputRoot, $"Model.cs");
-            File.WriteAllText(outPath, dtoCode);
 
-            var groupedByTag = document.Paths
-                .SelectMany(path => path.Value.ActualPathItem.Select(op => new {
+                OpenApiDocument document;
+
+
+                try
+                {
+                    document = await OpenApiDocument.FromUrlAsync(swaggerUrl);
+                }
+                catch (HttpRequestException e)
+                {
+                    Console.WriteLine($"Wrong Swagger Address : {swaggerUrl}");
+                    return;
+                }
+
+
+
+                foreach (var item in document.Paths)
+                {
+                    totalDocument.Paths[item.Key] = item.Value;
+                }
+
+                foreach (var schema in document.Components.Schemas)
+                    totalDocument.Components.Schemas.Add(schema.Key, schema.Value);
+
+                foreach (var response in document.Components.Responses)
+                    totalDocument.Components.Responses.Add(response.Key, response.Value);
+
+                foreach (var parameter in document.Components.Parameters)
+                    totalDocument.Components.Parameters.Add(parameter.Key, parameter.Value);
+
+                foreach (var requestBody in document.Components.RequestBodies)
+                    totalDocument.Components.RequestBodies.Add(requestBody.Key, requestBody.Value);
+            }
+
+
+
+            #region CS파일 생성
+            var groupedByTag = totalDocument.Paths
+                .SelectMany(path => path.Value.ActualPathItem.Select(op => new
+                {
                     Path = path.Key,
                     Operation = op,
                     Tag = op.Value.Tags.FirstOrDefault() ?? "Default"
@@ -66,26 +84,23 @@ namespace SwaggerUnityGenerator
                 var controllerName = group.Key; // Controller 이름
                 var className = $"{controllerName}Client"; // 예: UserClient
 
-                var controllerDoc = new OpenApiDocument
-                {
-                    Info = document.Info,
-                };
+                var controllerDoc = new OpenApiDocument();
 
                 foreach (var item in group)
                 {
-                    controllerDoc.Paths[item.Path] = document.Paths[item.Path];
+                    controllerDoc.Paths[item.Path] = totalDocument.Paths[item.Path];
                 }
 
-                foreach (var schema in document.Components.Schemas)
+                foreach (var schema in totalDocument.Components.Schemas)
                     controllerDoc.Components.Schemas.Add(schema.Key, schema.Value);
 
-                foreach (var response in document.Components.Responses)
+                foreach (var response in totalDocument.Components.Responses)
                     controllerDoc.Components.Responses.Add(response.Key, response.Value);
 
-                foreach (var parameter in document.Components.Parameters)
+                foreach (var parameter in totalDocument.Components.Parameters)
                     controllerDoc.Components.Parameters.Add(parameter.Key, parameter.Value);
 
-                foreach (var requestBody in document.Components.RequestBodies)
+                foreach (var requestBody in totalDocument.Components.RequestBodies)
                     controllerDoc.Components.RequestBodies.Add(requestBody.Key, requestBody.Value);
 
 
@@ -97,27 +112,41 @@ namespace SwaggerUnityGenerator
                     AdditionalNamespaceUsages = new[] { "UnityEngine.Networking", "Cysharp.Threading.Tasks" },
                     CSharpGeneratorSettings = {
             TemplateDirectory = "./Templates",
-            Namespace = config.DTONamespace
+            Namespace = config.Namespace
         }
                 };
 
-                generator = new CSharpClientGenerator(controllerDoc, settings);
-                var code = generator.GenerateFile(ClientGeneratorOutputType.Implementation);
+                var code = new CSharpClientGenerator(controllerDoc, settings).GenerateFile(ClientGeneratorOutputType.Implementation);
 
                 var fileName = $"{className}.cs";
                 File.WriteAllText(Path.Combine(outputRoot, fileName), code);
                 Console.WriteLine($"[Controller] {className} → {fileName}");
             }
+            #endregion
 
+            #region DTO 생성
+            var generator = new CSharpClientGenerator(totalDocument, new CSharpClientGeneratorSettings
+            {
+                CSharpGeneratorSettings =
+                {
+                    TemplateDirectory = "./Templates",
+                    Namespace = config.Namespace
+                }
+            });
 
+            var dtoCode = generator.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Contracts);
+            var outPath = Path.Combine(outputRoot, $"Model.cs");
+            File.WriteAllText(outPath, dtoCode);
+            #endregion
 
+            #region Config 파일 생성
             var parser = new FluidParser();
             var templateText = File.ReadAllText("Templates/NetworkConfig.liquid");
 
             if (parser.TryParse(templateText, out var template, out var errors))
             {
                 var context = new TemplateContext();
-                context.SetValue("namespace", config.DTONamespace);
+                context.SetValue("namespace", config.Namespace);
                 context.SetValue("baseUrl", "https://localhost");
                 context.SetValue("timeout", 30);
 
@@ -130,7 +159,7 @@ namespace SwaggerUnityGenerator
             {
                 Console.WriteLine("Liquid 파싱 에러 발생: " + string.Join("\n", errors));
             }
-
+            #endregion
 
             static string PathToClassName(string path)
             {
@@ -144,6 +173,7 @@ namespace SwaggerUnityGenerator
         private static Config LoadConfig(string path = "config.json")
         {
             string json;
+
             if (!File.Exists(path))
             {
                 Config defaultConfig = new Config();
