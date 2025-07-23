@@ -19,7 +19,8 @@ using System.Collections.Generic;
         urlBuilder_.Append("{{ operation.Path }}");
         {% if operation.HasContent %}
         var bodyJson = JsonConvert.SerializeObject({{ operation.ContentParameter.VariableName }});
-        byte[] bodyRaw = Encoding.UTF8.GetBytes(bodyJson);
+        
+        byte[] bodyRaw = await NetworkConfig.Compress(bodyJson);
         {% endif %}
         {% if operation.QueryParameters.size > 0 %}
         var queryParams = new List<string>();
@@ -39,12 +40,17 @@ using System.Collections.Generic;
         {% endif %}
         request.downloadHandler = new DownloadHandlerBuffer();
         request.SetRequestHeader("Content-Type", "application/json");
+        request.SetRequestHeader("Content-Encoding", "br");
         {% for header in operation.HeaderParameters %}
         request.SetRequestHeader("{{ header.Name }}", {{ header.VariableName }});
         {% endfor %}
         
         #if NET_LOG
+         {% if operation.HasContent %}
+        Debug.Log($"[{{ Class }}/REQ] {url}\r\nBody:{bodyJson}");
+        {% else %}
         Debug.Log($"[{{ Class }}/REQ] {url}");
+        {% endif %}
         #endif
 
         await request.SendWebRequest();
@@ -54,7 +60,11 @@ using System.Collections.Generic;
             var responseText = request.downloadHandler.text;
 
             #if NET_LOG
-            Debug.Log($"[{{ Class }}/RES] {responseText}");
+            {% if operation.HasResultType %}
+            Debug.Log($"[{{ Class }}/RES] {url}\r\nBody:{responseText}");
+            {% else %}
+            Debug.Log($"[{{ Class }}/RES] {url}");
+            {% endif %}
             #endif
 
             {% if operation.HasResultType %}
@@ -66,10 +76,12 @@ using System.Collections.Generic;
         }
         else
         {
-            #if NET_LOG
             Debug.LogError($"[{{ Class }}] Request failed: {request.error}");
-            #endif
-            throw new System.Exception($"[{{ Class }}] Request failed: {request.error}");
+             {% if operation.HasResultType %}
+            return default;
+            {% else %}
+            return;
+            {% endif %}
         }
     }
     {% endfor %}

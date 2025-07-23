@@ -8,6 +8,8 @@ using System.Diagnostics.CodeAnalysis;
 using Fluid;
 using NSwag.CodeGeneration;
 using System.Reflection.Metadata;
+using NJsonSchema.CodeGeneration;
+using Newtonsoft.Json.Linq;
 
 namespace SwaggerUnityGenerator
 {
@@ -26,47 +28,9 @@ namespace SwaggerUnityGenerator
             }
             Directory.CreateDirectory(outputRoot);
 
-            OpenApiDocument totalDocument = new OpenApiDocument();
+            OpenApiDocument totalDocument = await LoadAndMergeSwaggersAsync(config.SwaggerUrl);
 
-
-
-
-            foreach (var swaggerUrl in config.SwaggerUrl)
-            {
-
-                OpenApiDocument document;
-
-
-                try
-                {
-                    document = await OpenApiDocument.FromUrlAsync(swaggerUrl);
-                }
-                catch (HttpRequestException e)
-                {
-                    Console.WriteLine($"Wrong Swagger Address : {swaggerUrl}");
-                    return;
-                }
-
-
-
-                foreach (var item in document.Paths)
-                {
-                    totalDocument.Paths[item.Key] = item.Value;
-                }
-
-                foreach (var schema in document.Components.Schemas)
-                    totalDocument.Components.Schemas.Add(schema.Key, schema.Value);
-
-                foreach (var response in document.Components.Responses)
-                    totalDocument.Components.Responses.Add(response.Key, response.Value);
-
-                foreach (var parameter in document.Components.Parameters)
-                    totalDocument.Components.Parameters.Add(parameter.Key, parameter.Value);
-
-                foreach (var requestBody in document.Components.RequestBodies)
-                    totalDocument.Components.RequestBodies.Add(requestBody.Key, requestBody.Value);
-            }
-
+            Console.WriteLine(totalDocument.Components.Schemas["AuthResponse"].Properties["code"].Reference?.Title);
 
 
             #region CS파일 생성
@@ -87,9 +51,7 @@ namespace SwaggerUnityGenerator
                 var controllerDoc = new OpenApiDocument();
 
                 foreach (var item in group)
-                {
                     controllerDoc.Paths[item.Path] = totalDocument.Paths[item.Path];
-                }
 
                 foreach (var schema in totalDocument.Components.Schemas)
                     controllerDoc.Components.Schemas.Add(schema.Key, schema.Value);
@@ -111,8 +73,9 @@ namespace SwaggerUnityGenerator
                     UseBaseUrl = true,
                     AdditionalNamespaceUsages = new[] { "UnityEngine.Networking", "Cysharp.Threading.Tasks" },
                     CSharpGeneratorSettings = {
-            TemplateDirectory = "./Templates",
-            Namespace = config.Namespace
+                        TemplateDirectory = "./Templates",
+                        Namespace = config.Namespace,
+                        EnumNameGenerator = new SwaggerEnumNameGenerator(),
         }
                 };
 
@@ -130,7 +93,8 @@ namespace SwaggerUnityGenerator
                 CSharpGeneratorSettings =
                 {
                     TemplateDirectory = "./Templates",
-                    Namespace = config.Namespace
+                    Namespace = config.Namespace,
+                    EnumNameGenerator = new SwaggerEnumNameGenerator()
                 }
             });
 
@@ -188,5 +152,85 @@ namespace SwaggerUnityGenerator
             json = File.ReadAllText(path);
             return JsonSerializer.Deserialize<Config>(json);
         }
+
+        public static async Task<OpenApiDocument> LoadAndMergeSwaggersAsync(string[] swaggerUrls)
+        {
+            JObject merged = new JObject
+            {
+                ["openapi"] = "3.0.1",
+                ["info"] = new JObject { ["title"] = "Merged API", ["version"] = "1.0" },
+                ["paths"] = new JObject(),
+                ["components"] = new JObject
+                {
+                    ["schemas"] = new JObject(),
+                    ["responses"] = new JObject(),
+                    ["parameters"] = new JObject(),
+                    ["requestBodies"] = new JObject()
+                }
+            };
+
+            using var http = new HttpClient();
+
+            foreach (var url in swaggerUrls)
+            {
+                var json = await http.GetStringAsync(url).ConfigureAwait(false);
+                var doc = JObject.Parse(json);
+
+                // paths 병합
+                foreach (var prop in doc["paths"]!.Children<JProperty>())
+                    merged["paths"]![prop.Name] = prop.Value;
+
+                // schemas, responses, parameters, requestBodies 병합
+                var compsSource = doc["components"] as JObject;
+                var compsTarget = merged["components"] as JObject;
+
+                foreach (var section in new[] { "schemas", "responses", "parameters", "requestBodies" })
+                {
+                    var src = (compsSource![section] as JObject)!;
+                    var dst = (compsTarget![section] as JObject)!;
+
+                    if (src == null) continue;
+                    foreach (var prop in src.Children<JProperty>())
+                        dst[prop.Name] = prop.Value;
+                }
+            }
+
+            var mergedJson = merged.ToString();
+
+            return await OpenApiDocument.FromJsonAsync(mergedJson).ConfigureAwait(false);
+        }
+
+    public class SwaggerEnumNameGenerator : IEnumNameGenerator
+        {
+            public string Generate(int index, string? name, object? value, JsonSchema schema)
+            {
+                if (schema.ExtensionData != null && schema.ExtensionData.TryGetValue("x-enum-varnames", out object? varnameToken))
+                {
+                    if (varnameToken is object[] arr && index < arr.Length)
+                    {
+                        var rawName = arr[index]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(rawName))
+                            return NormalizeEnumKey(rawName);
+                    }
+                }
+
+                if (value != null)
+                    return $"Value{value}";
+
+                return $"Unknown{index}";
+            }
+
+
+            private string NormalizeEnumKey(string raw)
+            {
+                var cleaned = raw.Replace("-", "_")
+                                 .Replace(" ", "_")
+                                 .Replace(".", "_");
+
+                var parts = cleaned.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                return string.Concat(parts.Select(p => char.ToUpperInvariant(p[0]) + p.Substring(1)));
+            }
+        }
+
     }
 }
