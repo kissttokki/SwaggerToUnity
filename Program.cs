@@ -30,9 +30,6 @@ namespace SwaggerUnityGenerator
 
             OpenApiDocument totalDocument = await LoadAndMergeSwaggersAsync(config.SwaggerUrl);
 
-            Console.WriteLine(totalDocument.Components.Schemas["AuthResponse"].Properties["code"].Reference?.Title);
-
-
             #region CS파일 생성
             var groupedByTag = totalDocument.Paths
                 .SelectMany(path => path.Value.ActualPathItem.Select(op => new
