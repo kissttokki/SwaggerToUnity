@@ -1,4 +1,4 @@
-﻿using NSwag;
+using NSwag;
 using NSwag.CodeGeneration.CSharp;
 using NJsonSchema.CodeGeneration.CSharp;
 using NJsonSchema;
@@ -16,7 +16,7 @@ namespace SwaggerUnityGenerator
     class SwaggerUnityGenerator
     {
 
-        public static async Task Main()
+        public static async Task Main(params string[] args)
         {
             var config = LoadConfig();
 
@@ -27,6 +27,9 @@ namespace SwaggerUnityGenerator
                 Directory.Delete(outputRoot, true);
             }
             Directory.CreateDirectory(outputRoot);
+
+
+            string[] targetUrls = args == null || args.Length == 0 ? config.SwaggerUrl : args;
 
             OpenApiDocument totalDocument = await LoadAndMergeSwaggersAsync(config.SwaggerUrl);
 
