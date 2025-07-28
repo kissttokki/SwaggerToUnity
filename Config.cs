@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -13,5 +13,7 @@ namespace SwaggerUnityGenerator
         public string Namespace { get; set; } = "ApiService";
         public string ModelFileName { get; set; } = "Model";
         public string ClassName { get; set; } = "{tag}ApiClient";
+
+        public bool SkipAskingFolderDeletion { get; set; } = false;
     }
 }

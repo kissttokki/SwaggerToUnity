@@ -20,18 +20,34 @@ namespace SwaggerUnityGenerator
         {
             var config = LoadConfig();
 
-            string outputRoot = config.OutputRoot;
-
-            if (Directory.Exists(outputRoot))
-            {
-                Directory.Delete(outputRoot, true);
-            }
-            Directory.CreateDirectory(outputRoot);
+            string outputRoot = args == null || args.Length == 0 ? config.OutputRoot : args[0];
 
 
-            string[] targetUrls = args == null || args.Length == 0 ? config.SwaggerUrl : args;
+            string[] targetUrls = args == null || args.Length == 0 ? config.SwaggerUrl : args.Skip(1).ToArray();
 
             OpenApiDocument totalDocument = await LoadAndMergeSwaggersAsync(config.SwaggerUrl);
+
+            if (Directory.Exists(outputRoot) == true)
+            {
+                if (config.SkipAskingFolderDeletion == false)
+                {
+                    Console.Write($"해당 경로 {outputRoot}에 이미 폴더가 존재합니다. 진행을 위해선 해당 폴더 삭제가 진행됩니다. 진행하시겠습니까? (Y/N)");
+                    var line = Console.ReadLine();
+
+                    if (line.ToLower() == "y")
+                    {
+                        Directory.Delete(outputRoot, true);
+                    }
+                    else
+                    {
+                        Console.WriteLine("진행이 취소되었습니다.");
+                        return;
+                    }
+                }
+                else
+                    Directory.Delete(outputRoot, true);
+            }
+            Directory.CreateDirectory(outputRoot);
 
             #region CS파일 생성
             var groupedByTag = totalDocument.Paths

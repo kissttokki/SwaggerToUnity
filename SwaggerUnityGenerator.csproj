@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Configurations>Debug;Release;Unity</Configurations>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,8 +13,14 @@
     <PackageReference Include="NSwag.CodeGeneration.CSharp" Version="14.4.0" />
     <PackageReference Include="NSwag.Core" Version="14.4.0" />
   </ItemGroup>
+	
+	<PropertyGroup Condition="'$(Configuration)' == 'Unity'">
+		<OutputPath>..\..\PackMonDefense-Client\Tools\SwaggerToUnity</OutputPath>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+	</PropertyGroup>
 
-  <ItemGroup>
+	<ItemGroup>
     <None Update="Templates\Client.Class.Annotations.liquid">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
