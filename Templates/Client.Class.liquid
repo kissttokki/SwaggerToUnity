@@ -53,7 +53,14 @@ using System.Collections.Generic;
         {% endif %}
         #endif
 
-        await request.SendWebRequest();
+         if (NetworkConfig.Token != null)
+         {
+             await request.SendWebRequest().ToUniTask(cancellationToken: NetworkConfig.Token.Value);
+         }
+         else
+         {
+             await request.SendWebRequest();
+         }
 
         if (request.result == UnityWebRequest.Result.Success)
         {

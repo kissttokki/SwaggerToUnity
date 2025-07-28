@@ -1,4 +1,4 @@
-﻿using Cysharp.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -9,5 +9,6 @@ namespace {{ namespace }}
     {
         public static string BaseUrl {get;set;} = "{{ baseUrl }}";
         public static int TimeoutSeconds {get;set;} = {{ timeout }};
+        public static CancellationToken? Token { get; set; }
     }
 }
