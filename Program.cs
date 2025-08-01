@@ -61,8 +61,8 @@ namespace SwaggerUnityGenerator
 
             foreach (var group in groupedByTag)
             {
-                var controllerName = group.Key; // Controller 이름
-                var className = $"{controllerName}Client"; // 예: UserClient
+                var controllerName = group.Key;
+                var className = $"{controllerName}ApiClient";
 
                 var controllerDoc = new OpenApiDocument();
 
@@ -106,6 +106,7 @@ namespace SwaggerUnityGenerator
             #region DTO 생성
             var generator = new CSharpClientGenerator(totalDocument, new CSharpClientGeneratorSettings
             {
+                AdditionalContractNamespaceUsages = new string[] { "System.Net" },
                 CSharpGeneratorSettings =
                 {
                     TemplateDirectory = "./Templates",
