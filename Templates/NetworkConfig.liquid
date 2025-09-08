@@ -11,5 +11,6 @@ namespace {{ namespace }}
         public static string BaseUrl {get;set;} = "{{ baseUrl }}";
         public static int TimeoutSeconds {get;set;} = {{ timeout }};
         public static CancellationToken? Token { get; set; }
+        public static string JwtToken {get;set;} = null;
     }
 }
