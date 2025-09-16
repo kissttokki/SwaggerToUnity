@@ -10,6 +10,7 @@ using NSwag.CodeGeneration;
 using System.Reflection.Metadata;
 using NJsonSchema.CodeGeneration;
 using Newtonsoft.Json.Linq;
+using System.Text;
 
 namespace SwaggerUnityGenerator
 {
@@ -18,6 +19,17 @@ namespace SwaggerUnityGenerator
 
         public static async Task Main(params string[] args)
         {
+            string CleanInput(string input)
+            {
+                if (input == null) return "";
+                // BOM, 제어문자, 공백 모두 제거
+                return new string(input.Where(c => !char.IsControl(c) && !char.IsWhiteSpace(c) && c != '\uFEFF').ToArray());
+            }
+
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            Console.OutputEncoding = Encoding.UTF8;
+            Console.InputEncoding = Encoding.UTF8;
+
             var config = LoadConfig();
 
             string outputRoot = args == null || args.Length == 0 ? config.OutputRoot : args[0];
@@ -34,13 +46,13 @@ namespace SwaggerUnityGenerator
                     Console.Write($"해당 경로 {outputRoot}에 이미 폴더가 존재합니다. 진행을 위해선 해당 폴더 삭제가 진행됩니다. 진행하시겠습니까? (Y/N)");
                     var line = Console.ReadLine();
 
-                    if (line.ToLower() == "y")
+                    if (CleanInput(line).ToLower() == "y")
                     {
                         Directory.Delete(outputRoot, true);
                     }
                     else
                     {
-                        Console.WriteLine("진행이 취소되었습니다.");
+                        Console.WriteLine($"진행이 취소되었습니다. 입력값: {line}");
                         return;
                     }
                 }
