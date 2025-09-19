@@ -15,5 +15,7 @@ namespace SwaggerUnityGenerator
         public string ClassName { get; set; } = "{tag}ApiClient";
 
         public bool SkipAskingFolderDeletion { get; set; } = false;
+
+        public bool SperateClass { get; set; } = false;
     }
 }

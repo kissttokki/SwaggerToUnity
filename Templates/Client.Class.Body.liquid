@@ -1,1 +1,7 @@
-﻿
+{% for property in Model.Properties %}
+    /// <summary>
+    /// {{ property.Description }}
+    /// </summary>
+    [Newtonsoft.Json.JsonProperty("{{ property.Name }}"{% if property.IsRequired %}, Required = Newtonsoft.Json.Required.Always{% endif %})]
+    public {{ property.Type }} {{ property.PropertyName }} { get; set; }
+{% endfor %}

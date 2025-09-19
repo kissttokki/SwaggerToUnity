@@ -10,8 +10,8 @@
 
   <ItemGroup>
     <PackageReference Include="Fluid.Core" Version="2.25.0" />
-    <PackageReference Include="NSwag.CodeGeneration.CSharp" Version="14.4.0" />
-    <PackageReference Include="NSwag.Core" Version="14.4.0" />
+    <PackageReference Include="NSwag.CodeGeneration.CSharp" Version="14.5.0" />
+    <PackageReference Include="NSwag.Core" Version="14.5.0" />
   </ItemGroup>
 	
 	<PropertyGroup Condition="'$(Configuration)' == 'Unity'">

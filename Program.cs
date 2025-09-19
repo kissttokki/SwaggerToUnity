@@ -11,11 +11,14 @@ using System.Reflection.Metadata;
 using NJsonSchema.CodeGeneration;
 using Newtonsoft.Json.Linq;
 using System.Text;
+using JsonConvert = Newtonsoft.Json.JsonConvert;
 
 namespace SwaggerUnityGenerator
 {
     class SwaggerUnityGenerator
     {
+        public static Dictionary<JsonSchema, string> SchemaToNameMap = new();
+        public static JObject RawSwaggerJson { get; set; }
 
         public static async Task Main(params string[] args)
         {
@@ -39,6 +42,8 @@ namespace SwaggerUnityGenerator
 
             OpenApiDocument totalDocument = await LoadAndMergeSwaggersAsync(config.SwaggerUrl);
 
+
+
             if (Directory.Exists(outputRoot) == true)
             {
                 if (config.SkipAskingFolderDeletion == false)
@@ -61,76 +66,96 @@ namespace SwaggerUnityGenerator
             }
             Directory.CreateDirectory(outputRoot);
 
-            #region CS파일 생성
-            var groupedByTag = totalDocument.Paths
-                .SelectMany(path => path.Value.ActualPathItem.Select(op => new
-                {
-                    Path = path.Key,
-                    Operation = op,
-                    Tag = op.Value.Tags.FirstOrDefault() ?? "Default"
-                }))
-                .GroupBy(x => x.Tag);
-
-            foreach (var group in groupedByTag)
+            if (config.SperateClass == true)
             {
-                var controllerName = group.Key;
-                var className = $"{controllerName}ApiClient";
+                #region CS파일 생성
+                var groupedByTag = totalDocument.Paths
+                    .SelectMany(path => path.Value.ActualPathItem.Select(op => new
+                    {
+                        Path = path.Key,
+                        Operation = op,
+                        Tag = op.Value.Tags.FirstOrDefault() ?? "Default"
+                    }))
+                    .GroupBy(x => x.Tag);
 
-                var controllerDoc = new OpenApiDocument();
+                foreach (var group in groupedByTag)
+                {
+                    var controllerName = group.Key;
+                    var className = $"{controllerName}ApiClient";
 
-                foreach (var item in group)
-                    controllerDoc.Paths[item.Path] = totalDocument.Paths[item.Path];
+                    var controllerDoc = new OpenApiDocument();
 
-                foreach (var schema in totalDocument.Components.Schemas)
-                    controllerDoc.Components.Schemas.Add(schema.Key, schema.Value);
+                    foreach (var item in group)
+                        controllerDoc.Paths[item.Path] = totalDocument.Paths[item.Path];
 
-                foreach (var response in totalDocument.Components.Responses)
-                    controllerDoc.Components.Responses.Add(response.Key, response.Value);
+                    foreach (var schema in totalDocument.Components.Schemas)
+                        controllerDoc.Components.Schemas.Add(schema.Key, schema.Value);
 
-                foreach (var parameter in totalDocument.Components.Parameters)
-                    controllerDoc.Components.Parameters.Add(parameter.Key, parameter.Value);
+                    foreach (var response in totalDocument.Components.Responses)
+                        controllerDoc.Components.Responses.Add(response.Key, response.Value);
 
-                foreach (var requestBody in totalDocument.Components.RequestBodies)
-                    controllerDoc.Components.RequestBodies.Add(requestBody.Key, requestBody.Value);
+                    foreach (var parameter in totalDocument.Components.Parameters)
+                        controllerDoc.Components.Parameters.Add(parameter.Key, parameter.Value);
+
+                    foreach (var requestBody in totalDocument.Components.RequestBodies)
+                        controllerDoc.Components.RequestBodies.Add(requestBody.Key, requestBody.Value);
 
 
 
+                    var settings = new CSharpClientGeneratorSettings
+                    {
+                        ClassName = className,
+                        UseBaseUrl = true,
+                        AdditionalNamespaceUsages = new[] { "UnityEngine.Networking", "Cysharp.Threading.Tasks" },
+                        CSharpGeneratorSettings = {
+                                TemplateDirectory = "./Templates",
+                                Namespace = config.Namespace,
+                }
+                    };
+
+                    var code = new CSharpClientGenerator(controllerDoc, settings).GenerateFile(ClientGeneratorOutputType.Implementation);
+
+                    var fileName = $"{className}.cs";
+                    File.WriteAllText(Path.Combine(outputRoot, fileName), code);
+                    Console.WriteLine($"[Controller] {className} → {fileName}");
+                }
+                #endregion
+
+                #region DTO 생성
+                var generator = new CSharpClientGenerator(totalDocument, new CSharpClientGeneratorSettings
+                {
+                    AdditionalContractNamespaceUsages = new string[] { "System.Net" },
+                    CSharpGeneratorSettings =
+                        {
+                            TemplateDirectory = "./Templates",
+                            Namespace = config.Namespace,
+                        }
+                });
+
+                var dtoCode = generator.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Contracts);
+                var outPath = Path.Combine(outputRoot, $"Model.cs");
+                File.WriteAllText(outPath, dtoCode);
+                #endregion
+            }
+            else
+            {
                 var settings = new CSharpClientGeneratorSettings
                 {
-                    ClassName = className,
+                    ClassName = "ApiClient",
                     UseBaseUrl = true,
-                    AdditionalNamespaceUsages = new[] { "UnityEngine.Networking", "Cysharp.Threading.Tasks" },
+                    AdditionalContractNamespaceUsages = new string[] { "System.Net" },
+                    AdditionalNamespaceUsages = new[] { "System", "System.Net", "UnityEngine.Networking", "Cysharp.Threading.Tasks" },
                     CSharpGeneratorSettings = {
-                        TemplateDirectory = "./Templates",
-                        Namespace = config.Namespace,
-                        EnumNameGenerator = new SwaggerEnumNameGenerator(),
-        }
+                            TemplateDirectory = "./Templates",
+                            Namespace = config.Namespace,
+                    }
                 };
 
-                var code = new CSharpClientGenerator(controllerDoc, settings).GenerateFile(ClientGeneratorOutputType.Implementation);
+                var code = new CSharpClientGenerator(totalDocument, settings).GenerateFile(ClientGeneratorOutputType.Full);
 
-                var fileName = $"{className}.cs";
+                var fileName = "ApiClient.cs";
                 File.WriteAllText(Path.Combine(outputRoot, fileName), code);
-                Console.WriteLine($"[Controller] {className} → {fileName}");
             }
-            #endregion
-
-            #region DTO 생성
-            var generator = new CSharpClientGenerator(totalDocument, new CSharpClientGeneratorSettings
-            {
-                AdditionalContractNamespaceUsages = new string[] { "System.Net" },
-                CSharpGeneratorSettings =
-                {
-                    TemplateDirectory = "./Templates",
-                    Namespace = config.Namespace,
-                    EnumNameGenerator = new SwaggerEnumNameGenerator()
-                }
-            });
-
-            var dtoCode = generator.GenerateFile(NSwag.CodeGeneration.ClientGeneratorOutputType.Contracts);
-            var outPath = Path.Combine(outputRoot, $"Model.cs");
-            File.WriteAllText(outPath, dtoCode);
-            #endregion
 
             #region Config 파일 생성
             var parser = new FluidParser();
@@ -186,7 +211,7 @@ namespace SwaggerUnityGenerator
         {
             JObject merged = new JObject
             {
-                ["openapi"] = "3.0.1",
+                ["openapi"] = "3.0.4",
                 ["info"] = new JObject { ["title"] = "Merged API", ["version"] = "1.0" },
                 ["paths"] = new JObject(),
                 ["components"] = new JObject
@@ -223,43 +248,15 @@ namespace SwaggerUnityGenerator
                         dst[prop.Name] = prop.Value;
                 }
             }
-
+            RawSwaggerJson = merged;
             var mergedJson = merged.ToString();
 
-            return await OpenApiDocument.FromJsonAsync(mergedJson).ConfigureAwait(false);
+            var openApi = await OpenApiDocument.FromJsonAsync(RawSwaggerJson.ToString());
+
+            foreach (var kv in openApi.Components.Schemas)
+                SchemaToNameMap[kv.Value] = kv.Key;
+
+            return openApi;
         }
-
-    public class SwaggerEnumNameGenerator : IEnumNameGenerator
-        {
-            public string Generate(int index, string? name, object? value, JsonSchema schema)
-            {
-                if (schema.ExtensionData != null && schema.ExtensionData.TryGetValue("x-enum-varnames", out object? varnameToken))
-                {
-                    if (varnameToken is object[] arr && index < arr.Length)
-                    {
-                        var rawName = arr[index]?.ToString();
-                        if (!string.IsNullOrWhiteSpace(rawName))
-                            return NormalizeEnumKey(rawName);
-                    }
-                }
-
-                if (value != null)
-                    return $"Value{value}";
-
-                return $"Unknown{index}";
-            }
-
-
-            private string NormalizeEnumKey(string raw)
-            {
-                var cleaned = raw.Replace("-", "_")
-                                 .Replace(" ", "_")
-                                 .Replace(".", "_");
-
-                var parts = cleaned.Split('_', StringSplitOptions.RemoveEmptyEntries);
-                return string.Concat(parts.Select(p => char.ToUpperInvariant(p[0]) + p.Substring(1)));
-            }
-        }
-
     }
 }
