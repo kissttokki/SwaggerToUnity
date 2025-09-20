@@ -82,12 +82,15 @@ using System.Collections.Generic;
             {% endif %}
             #endif
 
+
             {% if operation.HasResultType %}
             var result = JsonConvert.DeserializeObject<{{ operation.UnwrappedResultType }}>(responseText);
+            NetworkConfig.onPacketReceived?.Invoke(result);
             return result;
             {% else %}
             return;
             {% endif %}
+
         }
         else
         {
