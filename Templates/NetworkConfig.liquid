@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Threading;
+using UnityEngine;
 
 namespace ApiService
 {
@@ -19,38 +20,131 @@ namespace ApiService
         /// </summary>
         public static event Action<object> GlobalPacketEvent;
 
-        // 타입별로 정적 배열을 유지하는 Copy-On-Write 이벤트 허브
+
         private static class PacketEvent<T>
         {
-            private static readonly object _sync = new object();
-            private static Action<T>[] _handlers = Array.Empty<Action<T>>();
+            private static Action<T>[] s_handlers = Array.Empty<Action<T>>();
+
+            public static IDisposable AddDisposable(Action<T> callback)
+            {
+                Add(callback);
+                return new Subscription(() => Remove(callback));
+            }
 
             public static void Add(Action<T> callback)
             {
                 if (callback == null) throw new ArgumentNullException(nameof(callback));
-                lock (_sync)
+                var src = s_handlers;
+                var dst = new Action<T>[src.Length + 1];
+                Array.Copy(src, dst, src.Length);
+                dst[src.Length] = callback;
+                s_handlers = dst;
+            }
+
+            public static bool Remove(Action<T> callback)
+            {
+                if (callback == null) return false;
+                var src = s_handlers;
+                int idx = Array.IndexOf(src, callback);
+                if (idx < 0) return false;
+
+                if (src.Length == 1)
                 {
-                    var src = _handlers;
-                    var dst = new Action<T>[src.Length + 1];
-                    Array.Copy(src, dst, src.Length);
-                    dst[src.Length] = callback;
-                    _handlers = dst;
+                    s_handlers = Array.Empty<Action<T>>();
+                    return true;
                 }
+
+                var dst = new Action<T>[src.Length - 1];
+                if (idx > 0) Array.Copy(src, 0, dst, 0, idx);
+                if (idx < src.Length - 1)
+                    Array.Copy(src, idx + 1, dst, idx, src.Length - idx - 1);
+
+                s_handlers = dst;
+                return true;
+            }
+
+            public static void Clear()
+            {
+                s_handlers = Array.Empty<Action<T>>();
             }
 
             public static void Invoke(T packet)
             {
-                var snapshot = _handlers;
+                var snapshot = s_handlers;
+                if (snapshot.Length == 0)
+                    return;
+
+                bool needSweep = false;
+
                 for (int i = 0; i < snapshot.Length; i++)
                 {
+                    var handler = snapshot[i];
+
+                    // Unity 오브젝트 타겟이 파괴되었으면 실행 스킵하고 스윕 플래그
+                    var targetObj = handler.Target as UnityEngine.Object;
+                    if (targetObj == null && handler.Target is UnityEngine.Object)
+                    {
+                        needSweep = true;
+                        continue;
+                    }
+
                     try
                     {
-                        snapshot[i]?.Invoke(packet);
+                        handler?.Invoke(packet);
                     }
                     catch
                     {
-                        // 개별 핸들러 예외
+                        // 개별 핸들러 예외 무시(필요 시 로깅)
                     }
+                }
+
+                if (needSweep)
+                    SweepDeadTargets();
+            }
+
+            private static void SweepDeadTargets()
+            {
+                var src = s_handlers;
+                int aliveCount = 0;
+
+                // 1차 패스: 살아있는 개수 계산
+                for (int i = 0; i < src.Length; i++)
+                {
+                    var h = src[i];
+                    var tgt = h.Target as UnityEngine.Object;
+                    if (!(tgt == null && h.Target is UnityEngine.Object))
+                        aliveCount++;
+                }
+
+                if (aliveCount == src.Length) return;
+                if (aliveCount == 0)
+                {
+                    s_handlers = Array.Empty<Action<T>>();
+                    return;
+                }
+
+                // 2차 패스: 살아있는 것만 복사
+                var dst = new Action<T>[aliveCount];
+                int w = 0;
+                for (int i = 0; i < src.Length; i++)
+                {
+                    var h = src[i];
+                    var tgt = h.Target as UnityEngine.Object;
+                    if (tgt == null && h.Target is UnityEngine.Object)
+                        continue;
+                    dst[w++] = h;
+                }
+                s_handlers = dst;
+            }
+
+            private sealed class Subscription : IDisposable
+            {
+                private Action _dispose;
+                public Subscription(Action dispose) => _dispose = dispose;
+                public void Dispose()
+                {
+                    var d = Interlocked.Exchange(ref _dispose, null);
+                    d?.Invoke();
                 }
             }
         }
@@ -59,11 +153,33 @@ namespace ApiService
         /// 상속 클래스 호출은 성능상 지원하지 않습니다.
         /// 상속 기반 호출은 Global Event를 이용하세요
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="callback"></param>
         public static void RegPacketEvent<T>(Action<T> callback)
         {
             PacketEvent<T>.Add(callback);
+        }
+
+        /// <summary>
+        /// using 범위 기반 자동 해제
+        /// </summary>
+        public static IDisposable RegPacketEventDisposable<T>(Action<T> callback)
+        {
+            return PacketEvent<T>.AddDisposable(callback);
+        }
+
+        /// <summary>
+        /// 명시적 해제(메모리 누수 방지)
+        /// </summary>
+        public static bool UnregPacketEvent<T>(Action<T> callback)
+        {
+            return PacketEvent<T>.Remove(callback);
+        }
+
+        /// <summary>
+        /// 특정 타입의 모든 핸들러 제거
+        /// </summary>
+        public static void ClearPacketEvents<T>()
+        {
+            PacketEvent<T>.Clear();
         }
 
         public static void InvokePacketEvent<T>(T packet)
@@ -74,7 +190,7 @@ namespace ApiService
         public static void InvokeGlobalPacketEvent(object packet)
         {
             GlobalPacketEvent?.Invoke(packet);
-        }   
+        }
 
         // 기존 시그니처 유지: default(T)로 호출
         public static void InvokePacketEvent<T>()
