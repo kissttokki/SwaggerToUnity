@@ -85,7 +85,7 @@ using System.Collections.Generic;
 
             {% if operation.HasResultType %}
             var result = JsonConvert.DeserializeObject<{{ operation.UnwrappedResultType }}>(responseText);
-            NetworkConfig.onPacketReceived?.Invoke(result);
+            NetworkConfig.InvokePacketEvent<{{ operation.UnwrappedResultType }}>(result);
             return result;
             {% else %}
             return;
