@@ -5,14 +5,19 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading;
 
-namespace {{ namespace }}
+namespace ApiService
 {
     public static class NetworkConfig
     {
-        public static string BaseUrl {get;set;} = "{{ baseUrl }}";
-        public static int TimeoutSeconds {get;set;} = {{ timeout }};
+        public static string BaseUrl {get;set;} = "https://localhost";
+        public static int TimeoutSeconds {get;set;} = 30;
         public static CancellationToken? Token { get; set; }
         public static string JwtToken {get;set;} = null;
+
+        /// <summary>
+        /// 모든 패킷에 대한 이벤트 지원
+        /// </summary>
+        public static event Action<object> GlobalPacketEvent;
 
         // 타입별로 정적 배열을 유지하는 Copy-On-Write 이벤트 허브
         private static class PacketEvent<T>
@@ -50,6 +55,12 @@ namespace {{ namespace }}
             }
         }
 
+        /// <summary>
+        /// 상속 클래스 호출은 성능상 지원하지 않습니다.
+        /// 상속 기반 호출은 Global Event를 이용하세요
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="callback"></param>
         public static void RegPacketEvent<T>(Action<T> callback)
         {
             PacketEvent<T>.Add(callback);
@@ -59,6 +70,11 @@ namespace {{ namespace }}
         {
             PacketEvent<T>.Invoke(packet);
         }
+
+        public static void InvokeGlobalPacketEvent(object packet)
+        {
+            GlobalPacketEvent?.Invoke(packet);
+        }   
 
         // 기존 시그니처 유지: default(T)로 호출
         public static void InvokePacketEvent<T>()
